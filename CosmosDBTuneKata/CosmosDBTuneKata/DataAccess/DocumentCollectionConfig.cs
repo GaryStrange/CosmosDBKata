@@ -7,10 +7,11 @@ using System.Threading.Tasks;
 
 namespace CosmosDBTuneKata.DataAccess
 {
-    public struct DocumentCollectionConfig
+    public class DocumentCollectionConfig
     {
         public string collectionName;
-        public int offerThroughput;
+        public int offerThroughput = 10000;
         public IndexingPolicy indexingPolicy;
+        public string PartitionKeyPath;
     }
 }

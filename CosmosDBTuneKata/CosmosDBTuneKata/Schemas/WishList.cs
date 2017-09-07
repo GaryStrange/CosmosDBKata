@@ -1,4 +1,6 @@
-﻿using Microsoft.Azure.Documents;
+﻿using CosmosDBTuneKata.DataAccess;
+using Microsoft.Azure.Documents;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,8 +9,12 @@ using System.Threading.Tasks;
 
 namespace CosmosDBTuneKata.Schemas
 {
-    public class WishList : Document
+    public class WishList : Document, IPartitionedDocument
     {
-        public Wish[] Wishes;
+        [JsonProperty(PropertyName = "CustomerId")]
+        public string CustomerId { get; set; }
+        public Wish[] Wishes { get; set; }
+
+        public object PartitionKeyValue => this.CustomerId;
     }
 }

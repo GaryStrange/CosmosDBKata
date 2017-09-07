@@ -9,5 +9,8 @@ namespace CosmosDBTuneKata.DataAccess
         DocumentClient Client { get; }
         Uri CollectionUri { get; }
         Uri DocumentUri(string documentId);
+
+        T ProcessResourceResponse<T>(string requestInfo, T response) where T : IResourceResponseBase;
+        T ProcessFeedResponse<T, K>(T response) where T : IFeedResponse<K>;
     }
 }

@@ -11,7 +11,7 @@ namespace CosmosDBTuneKata.DataAccess
 {
     public static class CosmosDBFactory
     {
-        public static DocumentClient CreateClient(DocumentDbClientConfig config)
+        public static DocumentClient CreateClient(CosmosDbClientConfig config)
         {
             return new DocumentClient(
                 new Uri(config.endPointUrl),
@@ -23,7 +23,7 @@ namespace CosmosDBTuneKata.DataAccess
         public static DocumentClient CreateClient(string endpoint, string authKey)
         {
             return CreateClient(
-                new DocumentDbClientConfig()
+                new CosmosDbClientConfig()
                 {
                     endPointUrl = endpoint,
                     authKey = authKey

@@ -16,7 +16,7 @@ namespace CosmosDBTuneKata.DataAccess
     {
         public static async Task CreateDatabaseIfNotExists(DocumentClient client, string databaseName)
         {
-            // Check to verify a database with the id=FamilyDB does not exist
+            // Check to verify a database does not exist
             try
             {
                 await client.ReadDatabaseAsync(UriFactory.CreateDatabaseUri(databaseName));
@@ -71,9 +71,11 @@ namespace CosmosDBTuneKata.DataAccess
 
         private static void CreateDocumentCollection(DocumentClient client, string databaseName, DocumentCollectionConfig collectionConfig)
         {
-            DocumentCollection collectionInfo = new DocumentCollection();
-            collectionInfo.Id = collectionConfig.collectionName;
-
+            DocumentCollection collectionInfo = new DocumentCollection()
+            {
+                Id = collectionConfig.collectionName,
+                PartitionKey = new PartitionKeyDefinition() { Paths = { collectionConfig.PartitionKeyPath } }
+            };
             // Configure collections for maximum query flexibility including string range queries.
             collectionInfo.IndexingPolicy = collectionConfig.indexingPolicy ?? new IndexingPolicy(new RangeIndex(DataType.String) { Precision = -1 });
 
@@ -87,7 +89,7 @@ namespace CosmosDBTuneKata.DataAccess
 
                 var x = result.Resource;
             }
-            catch (Exception e)
+            catch 
             {
                 throw;
             }
@@ -187,74 +189,62 @@ namespace CosmosDBTuneKata.DataAccess
                     requestOptions);
         }
 
-        public static Offer ReadOffer(DocumentCollectionContext context)
-        {
-            return ReadOffer(
-                context.Client,
-                CosmosDbHelper.GetDatabaseIfExists(context),
-                context.Config.collectionName);
-        }
-        public static Offer ReadOffer(DocumentClient client, Database db, string collectionName)
-        {
-            DocumentCollection collection = client.ReadDocumentCollectionAsync(string.Format("/dbs/{0}/colls/{1}", db.Id, collectionName)).Result.Resource;
 
-            var response = client.ReadOffersFeedAsync().Result;
-            Offer offer = response
-                .Single(o => o.ResourceLink == collection.SelfLink);
-
-            return offer;
-        }
-
-        public static Offer ReplaceOffer(DocumentClient client, Offer currentOffer, int newThroughput)
-        {
-            OfferV2 replacementOffer = new OfferV2(currentOffer, newThroughput);
-
-            ResourceResponse<Offer> replaceOffer = client.ReplaceOfferAsync(replacementOffer).Result;
-
-            return (Offer)replaceOffer;
-        }
-
-        public static List<PartitionKeyRange> GetPartitionKeyRange(DocumentCollectionContext context)
-        {
-            return GetPartitionKeyRange(context.Client, context.CollectionUri);
-        }
-        public static List<PartitionKeyRange> GetPartitionKeyRange(DocumentClient client, string databaseName, string collectionName)
-        {
-            return GetPartitionKeyRange(client, UriFactory.CreateDocumentCollectionUri(databaseName, collectionName));
-        }
-        public static List<PartitionKeyRange> GetPartitionKeyRange(DocumentClient client, Uri collectionUri)
-        {
-            string pkRangesResponseContinuation = null;
-            List<PartitionKeyRange> partitionKeyRanges = new List<PartitionKeyRange>();
-
-            do
-            {
-                FeedResponse<PartitionKeyRange> pkRangesResponse = client.ReadPartitionKeyRangeFeedAsync(
-                    collectionUri,
-                    new FeedOptions { RequestContinuation = pkRangesResponseContinuation }).Result;
-
-                partitionKeyRanges.AddRange(pkRangesResponse);
-                pkRangesResponseContinuation = pkRangesResponse.ResponseContinuation;
-            }
-            while (pkRangesResponseContinuation != null);
-
-            return partitionKeyRanges;
-        }
-
-        public static T ReadDocument<T>(ICollectionContext context, String documentId, String partitionKeyValue = null) where T : Resource
+        public static T ReadDocument<T>(ICollectionContext context, String documentId
+            , object partitionKeyValue = null
+            ) where T : Document
         {
             Uri docUri = context.DocumentUri(documentId);
 
-            var response = context.Client.ReadDocumentAsync(docUri
-                , new RequestOptions() { PartitionKey = new PartitionKey(partitionKeyValue) })
-                .Result;
-
-            Debug.WriteLine(String.Format("Read response request charge: {0}", response.RequestCharge));
+            var response = context.ProcessResourceResponse(
+                String.Format("Read Document by id ({0}), partition ({1})", documentId, partitionKeyValue),
+                context.Client.ReadDocumentAsync(
+                    docUri
+                    , new RequestOptions() { PartitionKey = new PartitionKey(partitionKeyValue) }
+                    )
+                .Result);
 
             return (dynamic)response.Resource;
         }
 
-        public static T GetDocument<T>(ICollectionContext context, String Id = null, String partitionKeyValue = null) where T : Resource
+        private static string EqualityPredicate(this NameValueCollection attributes, string tableAlias = "c")
+        {
+            return string.Join("AND",
+            Enumerable.Range(0, attributes.Count)
+                .Select(i => attributes.GetKey(i) + " = " + attributes.GetValues(i).FirstOrDefault())
+                );
+        }
+
+        public static FeedResponse<T> RequestDocumentByAttribute<T>(ICollectionContext context, object PartitionKeyValue, NameValueCollection equalityAttributes) where T : Resource, IPartitionedDocument
+        {
+            var request = context.Client.CreateDocumentQuery<T>(context.CollectionUri
+                , String.Format("SELECT * FROM c WHERE c.id = \"{0}\"", 1)
+                , new FeedOptions() { PartitionKey = new PartitionKey(PartitionKeyValue) }
+                )
+                .AsDocumentQuery();
+
+            return request.ExecuteNextAsync<T>().Result;
+        }
+
+        public static FeedResponse<T> RequestDocument<T>(ICollectionContext context, string Id, object PartitionKeyValue) where T : Resource, IPartitionedDocument
+        {
+            var request = context.Client.CreateDocumentQuery<T>(context.CollectionUri
+                , String.Format("SELECT * FROM c WHERE c.id = \"{0}\"", Id)
+                //, new FeedOptions() { PartitionKey = new PartitionKey(PartitionKeyValue) }
+                //, new FeedOptions() { EnableCrossPartitionQuery = true }
+                , new FeedOptions() { EnableCrossPartitionQuery = true, MaxDegreeOfParallelism = 1 }
+                
+                )
+                .AsDocumentQuery();
+
+            return request.ExecuteNextAsync<T>().Result;
+        }
+        public static FeedResponse<T> RequestDocument<T>(ICollectionContext context, T doc) where T : Resource, IPartitionedDocument
+        {
+            return RequestDocument<T>(context, doc.Id, doc.PartitionKeyValue);
+        }
+
+        public static T GetDocument<T>(ICollectionContext context, String Id = null, object partitionKeyValue = null) where T : Resource
         {
             var request = context.Client.CreateDocumentQuery<T>(context.CollectionUri
                 , String.Format("SELECT * FROM c WHERE c.id = \"{0}\"", Id)
@@ -287,73 +277,12 @@ namespace CosmosDBTuneKata.DataAccess
             Debug.WriteLine(String.Format("Upsert response request charge: {0}", response.RequestCharge));
         }
 
-        public static async Task<DocumentChangeFeedBatch<T>> ReadChangeFeed<T>(DocumentCollectionContext context, DocumentChangeFeedBatch<T> batchContext)
+        public static void DeleteDocument<T>(ICollectionContext context, T doc, object partitionKeyValue) where T : Resource
         {
-            return await ReadChangeFeed<T>(context.Client, context.CollectionUri, batchContext);
+            var response = context.Client.DeleteDocumentAsync(doc.SelfLink, new RequestOptions() { PartitionKey = new PartitionKey(partitionKeyValue) }).Result;
+            Debug.WriteLine(String.Format("Delete response request charge: {0}", response.RequestCharge));
         }
 
-        public static async Task<DocumentChangeFeedBatch<T>> ReadChangeFeed<T>(DocumentClient client, Uri collectionUri, DocumentChangeFeedBatch<T> batchContext)
-        {
-            //Dictionary<string, string> checkPoints = new Dictionary<string, string>();
-            //List<T> feed = new List<T>();
-
-            //string continuation = null;
-            //checkPoints.TryGetValue(batchContext.KeyRange.Id, out continuation);
-
-            DocumentChangeFeedBatch<T> newBatch = CosmosDbHelper.CreateDocumentChangeFeedBatch<T>(batchContext);
-            IDocumentQuery<Document> query = client.CreateDocumentChangeFeedQuery(
-                collectionUri,
-                newBatch.Options
-                );
-
-            while (query.HasMoreResults)
-            {
-                FeedResponse<T> readChangesResponse = await query.ExecuteNextAsync<T>();
-
-                foreach (T doc in readChangesResponse)
-                {
-                    newBatch.FeedData.Add(doc);
-                }
-
-                newBatch.ResponseContinuation = readChangesResponse.ResponseContinuation;
-            }
-
-            return newBatch;
-        }
-
-
-        public class DocumentChangeFeedBatch<T>
-        {
-            public DocumentChangeFeedBatch(String RangeKeyId, String RequestContinuation = null)
-            {
-                this.Options = new ChangeFeedOptions()
-                {
-                    PartitionKeyRangeId = RangeKeyId,
-                    RequestContinuation = RequestContinuation,
-                    StartFromBeginning = (RequestContinuation != null) ? false : true
-                };
-
-                FeedData = new List<T>();
-            }
-
-            public String ResponseContinuation { get; set; }
-            public List<T> FeedData { get; set; }
-
-            public ChangeFeedOptions Options;
-        }
-
-        public static DocumentChangeFeedBatch<T> CreateDocumentChangeFeedBatch<T>(PartitionKeyRange keyRange)
-        {
-            return new DocumentChangeFeedBatch<T>(keyRange.Id);
-        }
-
-        public static DocumentChangeFeedBatch<T> CreateDocumentChangeFeedBatch<T>(DocumentChangeFeedBatch<T> previousBatch)
-        {
-            return new DocumentChangeFeedBatch<T>(
-                RangeKeyId: previousBatch.Options.PartitionKeyRangeId,
-                RequestContinuation: previousBatch.ResponseContinuation // response is stored into request for new batch
-                );
-        }
 
 
     }

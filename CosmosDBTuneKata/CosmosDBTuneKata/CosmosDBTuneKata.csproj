@@ -59,9 +59,11 @@
     <Compile Include="DataAccess\DocumentCollectionContextFactory.cs" />
     <Compile Include="DataAccess\ICollectionContext.cs" />
     <Compile Include="DataAccess\IndexingPolicyExtension.cs" />
+    <Compile Include="DataAccess\IValidate.cs" />
     <Compile Include="SchemaAttributes\SchemaAttributes.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="DataAccess\IPartitionedDocument.cs" />
     <Compile Include="Schemas\Wish.cs" />
     <Compile Include="Schemas\WishList.cs" />
   </ItemGroup>

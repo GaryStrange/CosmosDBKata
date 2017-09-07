@@ -8,10 +8,10 @@ namespace CosmosDBTuneKata.DataAccess
         public static DocumentCollectionContext CreateCollectionContext(NameValueCollection appSettings)
         {
             return CreateCollectionContext(
-                    DocumentDbClientConfig.DocDbConfigFromAppConfig(appSettings)
+                    CosmosDbClientConfig.CreateDocDbConfigFromAppConfig(appSettings)
                 );
         }
-        public static DocumentCollectionContext CreateCollectionContext(DocumentDbClientConfig config)
+        public static DocumentCollectionContext CreateCollectionContext(CosmosDbClientConfig config)
         {
             DocumentCollectionContext context = new DocumentCollectionContext(
                 client: CosmosDBFactory.CreateClient(config),
